@@ -25,7 +25,14 @@ mongoose.connect(process.env.MONGODB_URI)
 // ======================
 // ⚙️ Middleware
 // ======================
-app.use(cors());
+app.use(
+  cors({
+    origin: ["https://hex277.github.io", "https://gainchat-backend.onrender.com"],
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
+
 app.use(bodyParser.json());
 app.use("/Workspace", express.static(path.join(__dirname, "Workspace")));
 app.use("/Enterance", express.static(path.join(__dirname, "Enterance")));
