@@ -2,7 +2,6 @@
 // 🟢 GainChat - server.js
 // ======================
 
-require("dotenv").config();
 const mongoose = require("mongoose");
 const express = require("express");
 const path = require("path");
@@ -19,18 +18,14 @@ const app = express();
 // ======================
 // 🔗 MongoDB Connection
 // ======================
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch(err => console.error("❌ MongoDB connection error:", err));
 
 // ======================
 // ⚙️ Middleware
 // ======================
-
-app.use(cors({
-  origin: process.env.CLIENT_URL || "*",
-  credentials: true
-}));
+app.use(cors());
 app.use(bodyParser.json());
 app.use("/Workspace", express.static(path.join(__dirname, "Workspace")));
 app.use("/Enterance", express.static(path.join(__dirname, "Enterance")));
@@ -38,7 +33,6 @@ app.use("/Enterance", express.static(path.join(__dirname, "Enterance")));
 // ======================
 // 📧 Email Transporter (Gmail)
 // ======================
-
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -51,10 +45,6 @@ const transporter = nodemailer.createTransport({
 // 🌐 Routes
 // ======================
 
-// Default route → register page
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "Enterance", "register.html"));
-});
 
 // 🟢 REGISTER — Save user + send 6-digit verification code
 app.post("/api/register", async (req, res) => {
@@ -64,11 +54,15 @@ app.post("/api/register", async (req, res) => {
     if (!username || !email || !password)
       return res.status(400).json({ message: "All fields are required" });
 
+    // Check for existing email
     const existingUser = await User.findOne({ email });
     if (existingUser)
       return res.status(400).json({ message: "Email already registered" });
 
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Generate 6-digit code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     const ip =
@@ -76,10 +70,21 @@ app.post("/api/register", async (req, res) => {
       req.socket?.remoteAddress ||
       req.ip;
 
+    // Create user
+    const newUser = new User({
+      username,
+      email,
+      password: hashedPassword,
+      signupIP: ip,
+      verified: false,
+      verificationCode,
+    });
     global.tempUser = { username, email, password: hashedPassword, ip, verificationCode };
 
+
+    // Send Gmail verification code
     await transporter.sendMail({
-      from: `"GainChat Team" <${process.env.EMAIL_USER}>`,
+      from: '"GainChat Team" <gainchatteam@gmail.com>',
       to: email,
       subject: "Your GainChat Verification Code",
       html: `
@@ -112,6 +117,7 @@ app.post("/api/verify-code", async (req, res) => {
     if (global.tempUser.verificationCode !== code)
       return res.status(400).json({ message: "Invalid verification code" });
 
+    // ✅ Now save user to database
     const newUser = new User({
       username: global.tempUser.username,
       email: global.tempUser.email,
@@ -121,7 +127,7 @@ app.post("/api/verify-code", async (req, res) => {
     });
 
     await newUser.save();
-    global.tempUser = null;
+    global.tempUser = null; // clear temp data
 
     res.json({ message: "✅ Email verified successfully!" });
   } catch (err) {
@@ -130,7 +136,8 @@ app.post("/api/verify-code", async (req, res) => {
   }
 });
 
-// 🟠 LOGIN — Check credentials + verified
+
+// 🟠 (Optional) LOGIN — Check credentials + verified
 app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -156,7 +163,6 @@ app.post("/api/login", async (req, res) => {
 // ======================
 // 🚀 Start Server
 // ======================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
+app.listen(3000, () => {
+  console.log("✅ Server running at http://localhost:3000");
 });
