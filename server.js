@@ -86,29 +86,35 @@ app.post("/api/register", async (req, res) => {
       verified: false,
       verificationCode,
     });
-    global.tempUser = { username, email, password: hashedPassword, ip, verificationCode };
+    // === REPLACE global.tempUser WITH MONGODB SAVE ===
+    const TempUser = require('./models/TempUser'); // Make sure path is correct
+
+    // Delete any old temp user with same email
+    await TempUser.deleteOne({ email });
+
+    // Save new temp user
+    await new TempUser({
+      username,
+      email,
+      password: hashedPassword,
+      signupIP: ip,
+      verificationCode,
+    }).save();
 
 
     // Send Gmail verification code
-    // Try to send Gmail verification code (ignore timeout errors)
-    try {
-      await transporter.sendMail({
-        from: '"GainChat Team" <gainchatteam@gmail.com>',
-        to: email,
-        subject: "Your GainChat Verification Code",
-        html: `
-          <h2>Hello ${username},</h2>
-          <p>Welcome to GainChat! Here is your verification code:</p>
-          <h1 style="font-size: 32px; letter-spacing: 10px; color: #00b37d;">${verificationCode}</h1>
-          <p>Enter this code in the app to verify your email.<br>
-          It will expire in 10 minutes.</p>
-        `,
-      });
-      console.log("📧 Verification email sent successfully");
-    } catch (err) {
-      console.warn("⚠️ Email sending failed (ignored):", err.message);
-    }
-
+    await transporter.sendMail({
+      from: '"GainChat Team" <gainchatteam@gmail.com>',
+      to: email,
+      subject: "Your GainChat Verification Code",
+      html: `
+        <h2>Hello ${username},</h2>
+        <p>Welcome to GainChat! Here is your verification code:</p>
+        <h1 style="font-size: 32px; letter-spacing: 10px; color: #00b37d;">${verificationCode}</h1>
+        <p>Enter this code in the app to verify your email.<br>
+        It will expire in 10 minutes.</p>
+      `,
+    });
 
     res.status(201).json({ message: "✅ Verification code sent to your Gmail." });
   } catch (err) {
@@ -118,38 +124,45 @@ app.post("/api/register", async (req, res) => {
 });
 
 // 🟣 VERIFY — Check 6-digit code
+const TempUser = require('./models/TempUser');
+
 app.post("/api/verify-code", async (req, res) => {
   try {
     const { email, code } = req.body;
 
-    if (!global.tempUser)
-      return res.status(400).json({ message: "No pending verification" });
-
-    if (global.tempUser.email !== email)
-      return res.status(400).json({ message: "Email mismatch" });
-
-    if (global.tempUser.verificationCode !== code)
-      return res.status(400).json({ message: "Invalid verification code" });
-
-    // ✅ Now save user to database
-    const newUser = new User({
-      username: global.tempUser.username,
-      email: global.tempUser.email,
-      password: global.tempUser.password,
-      signupIP: global.tempUser.ip,
-      verified: true,
+    const tempUser = await TempUser.findOne({ 
+      email, 
+      verificationCode: code 
     });
 
-    await newUser.save();
-    global.tempUser = null; // clear temp data
+    if (!tempUser) {
+      return res.status(400).json({ message: "Invalid or expired code" });
+    }
 
-    res.json({ message: "✅ Email verified successfully!" });
+    if (tempUser.expiresAt < new Date()) {
+      await TempUser.deleteOne({ _id: tempUser._id });
+      return res.status(400).json({ message: "Code expired" });
+    }
+
+    // Save to real User
+    const newUser = new User({
+      username: tempUser.username,
+      email: tempUser.email,
+      password: tempUser.password,
+      signupIP: tempUser.signupIP,
+      verified: true,
+    });
+    await newUser.save();
+
+    // Clean up
+    await TempUser.deleteOne({ _id: tempUser._id });
+
+    res.json({ message: "Email verified successfully!" });
   } catch (err) {
-    console.error("❌ Verification error:", err);
+    console.error("Verification error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 // 🟠 (Optional) LOGIN — Check credentials + verified
 app.post("/api/login", async (req, res) => {
